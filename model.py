@@ -15,10 +15,28 @@ import torch
 import torch.nn as nn
 
 
+def nearest_divisor(n: int, target: int) -> int:
+    """Largest divisor of ``n`` that is <= ``target`` (>=1). Lets a proposed
+    patch size that doesn't evenly divide the image snap to a valid one instead
+    of crashing — the recipe still gets measured."""
+    target = max(1, min(int(target), int(n)))
+    for d in range(target, 0, -1):
+        if n % d == 0:
+            return d
+    return 1
+
+
+def valid_heads(dim: int, heads: int) -> int:
+    """A head count that divides ``dim`` (MultiheadAttention requires it). Snaps
+    down to the nearest divisor so a proposed width/head combo never crashes."""
+    return nearest_divisor(dim, max(1, int(heads)))
+
+
 class PatchEmbed(nn.Module):
     def __init__(self, img_size: int, patch_size: int, in_chans: int, embed_dim: int):
         super().__init__()
-        assert img_size % patch_size == 0, "img_size must be divisible by patch_size"
+        patch_size = nearest_divisor(img_size, patch_size)
+        self.patch_size = patch_size
         self.grid = img_size // patch_size
         self.num_patches = self.grid * self.grid
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
@@ -43,6 +61,7 @@ def sincos_pos_embed(num_patches: int, dim: int) -> torch.Tensor:
 class Block(nn.Module):
     def __init__(self, dim: int, heads: int, mlp_ratio: float = 2.0, dropout: float = 0.0):
         super().__init__()
+        heads = valid_heads(dim, heads)
         self.norm1 = nn.LayerNorm(dim)
         self.attn = nn.MultiheadAttention(dim, heads, dropout=dropout, batch_first=True)
         self.norm2 = nn.LayerNorm(dim)
